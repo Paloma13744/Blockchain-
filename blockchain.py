@@ -3,7 +3,8 @@ from uuid import uuid4
 import hashlib
 import json
 from time import time
-
+from urllib.parse import urlparse
+import requests
 
 class Blockchain:
     def __init__(self):
@@ -14,7 +15,7 @@ class Blockchain:
         # Criação do bloco Gênesis
         self.new_block(previous_hash='1', proof=100)
 
-    def new_block(self, proof, previous_hash=None): # Cria um novo bloco e adiciona à cadeia
+    def new_block(self, proof, previous_hash=None):  # Cria um novo bloco e adiciona à cadeia
         block = {
             'index': len(self.chain) + 1,
             'timestamp': time(),
@@ -25,15 +26,16 @@ class Blockchain:
         self.current_transactions = []  # Redefine as transações atuais
         self.chain.append(block)
         return block
-    
-    def new_transaction(self, sender, recipient, amount): # Cria uma nova transação e a adiciona à lista de transações atuais
+
+    # Cria uma nova transação e a adiciona à lista de transações atuais
+    def new_transaction(self, sender, recipient, amount):
         self.current_transactions.append({
             'sender': sender,
             'recipient': recipient,
             'amount': amount,
         })
         return self.last_block['index'] + 1
-    
+
     @staticmethod  # Gera o hash de um bloco usando o algoritmo SHA-256.
     def hash(block):
         block_string = json.dumps(block, sort_keys=True).encode()
@@ -42,8 +44,9 @@ class Blockchain:
     @property
     def last_block(self):  # Retorna o último bloco da cadeia.
         return self.chain[-1]
-    
-    def proof_of_work(self, last_block):  # O método que realiza o processo de prova de trabalho
+
+    # O método que realiza o processo de prova de trabalho
+    def proof_of_work(self, last_block):
         last_proof = last_block['proof']
         last_hash = self.hash(last_block)
         proof = 0
@@ -52,12 +55,13 @@ class Blockchain:
         return proof
 
     @staticmethod
-    def valid_proof(last_proof, proof, last_hash):    # Verifica se o hash gerado pela combinação do last_proof, proof e last_hash começa com "0000", o que indica que o proof é válido.
+    # Verifica se o hash gerado pela combinação do last_proof, proof e last_hash começa com "0000", o que indica que o proof é válido.
+    def valid_proof(last_proof, proof, last_hash):
         """Valida o proof resolvendo o problema do hash."""
         guess = f'{last_proof}{proof}{last_hash}'.encode()
         guess_hash = hashlib.sha256(guess).hexdigest()
         return guess_hash[:4] == "0000"
-    
+
     def valid_chain(self, chain):  # Verifica se a cadeia recebida é válida.
         last_block = chain[0]
         current_index = 1
@@ -73,7 +77,7 @@ class Blockchain:
             last_block = block
             current_index += 1
         return True
-    
+
     def resolve_conflicts(self):
         """
         Este é o nosso algoritmo de consenso, ele resolve conflitos
@@ -108,9 +112,25 @@ class Blockchain:
         return False
 
 
+    def register_node(self, address):
+        """
+        Adiciona um novo nó à lista de nós.
+
+        :param address: Endereço do nó. Exemplo: 'http://192.168.0.5:5000'
+        """
+        parsed_url = urlparse(address)
+        if parsed_url.netloc:
+            self.nodes.add(parsed_url.netloc)
+        elif parsed_url.path:
+            self.nodes.add(parsed_url.path)
+        else:
+            raise ValueError('URL inválido')
+
+
 # Definição das rotas
 app = Flask(__name__)
-node_identifier = str(uuid4()).replace('-', '')  # Identificador único para o nó
+node_identifier = str(uuid4()).replace(
+    '-', '')  # Identificador único para o nó
 blockchain = Blockchain()
 
 
@@ -123,7 +143,7 @@ def mine():
 
     # Adiciona uma transação especial para premiar o minerador
     blockchain.new_transaction(
-        sender="0",  
+        sender="0",
         recipient=node_identifier,  # Recompensa vai para o nó que minerou
         amount=1,
     )
@@ -151,7 +171,8 @@ def new_transaction():
         return 'Valores ausentes', 400
 
     # Cria uma nova transação
-    index = blockchain.new_transaction(values['sender'], values['recipient'], values['amount'])
+    index = blockchain.new_transaction(
+        values['sender'], values['recipient'], values['amount'])
 
     response = {'message': f'A transação será adicionada ao bloco {index}'}
     return jsonify(response), 201
@@ -185,6 +206,7 @@ def register_nodes():
     return jsonify(response), 201
 
 
+
 @app.route('/nodes/resolve', methods=['GET'])
 def consensus():
     replaced = blockchain.resolve_conflicts()
@@ -203,5 +225,14 @@ def consensus():
     return jsonify(response), 200
 
 
+
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    from argparse import ArgumentParser
+
+    parser = ArgumentParser()
+    parser.add_argument('-p', '--port', default=5000,
+                        type=int, help='port to listen on')
+    args = parser.parse_args()
+    port = args.port
+
+    app.run(host='0.0.0.0', port=port)
